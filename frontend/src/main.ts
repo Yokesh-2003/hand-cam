@@ -1,6 +1,5 @@
 import './style.css'
 import '@mediapipe/hands'
-import '@mediapipe/camera_utils'
 
 type Vec2 = { x: number; y: number }
 
@@ -18,12 +17,6 @@ const HandsCtor = (window as any).Hands as {
 }
 
 const HAND_CONNECTIONS = (window as any).HAND_CONNECTIONS as Array<[number, number]>
-const CameraCtor = (window as any).Camera as {
-  new (
-    videoEl: HTMLVideoElement,
-    cfg: { onFrame: () => Promise<void> | void; width: number; height: number },
-  ): { start: () => Promise<void> }
-}
 
 const app = document.querySelector<HTMLDivElement>('#app')
 if (!app) throw new Error('Missing #app')
@@ -44,7 +37,7 @@ app.innerHTML = `
     <main class="grid">
       <section class="stage">
         <div class="videoWrap">
-          <video id="video" class="video" playsinline></video>
+          <video id="video" class="video" playsinline autoplay muted></video>
           <canvas id="overlay" class="overlay" aria-label="hand overlay"></canvas>
           <canvas id="draw" class="draw" aria-label="air drawing"></canvas>
         </div>
@@ -114,7 +107,7 @@ const overlayCtx = els.overlay.getContext('2d', { alpha: true })!
 const drawCtx = els.draw.getContext('2d', { alpha: true })!
 
 let running = true
-let camera: { start: () => Promise<void> } | null = null
+let stream: MediaStream | null = null
 
 let lastTip: Vec2 | null = null
 let currentColor = els.color.value
@@ -358,6 +351,22 @@ async function maybePredictViaHttp(lm: Array<{ x: number; y: number; z?: number 
 async function start() {
   els.trackingPill.textContent = 'Requesting camera…'
 
+  // Ask for camera permission immediately.
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    })
+    els.video.srcObject = stream
+    await els.video.play()
+  } catch (err) {
+    console.error(err)
+    els.trackingPill.textContent = 'Camera blocked'
+    els.hint.textContent =
+      'Camera permission denied/blocked. Allow camera access and reload.'
+    return
+  }
+
   const hands = new HandsCtor({
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
   })
@@ -419,16 +428,18 @@ async function start() {
     }
   })
 
-  camera = new CameraCtor(els.video, {
-    onFrame: async () => {
-      if (!running) return
-      await hands.send({ image: els.video })
-    },
-    width: 1280,
-    height: 720,
-  })
+  const tick = async () => {
+    if (running && els.video.readyState >= 2) {
+      try {
+        await hands.send({ image: els.video })
+      } catch (err) {
+        console.warn(err)
+      }
+    }
+    requestAnimationFrame(() => void tick())
+  }
+  void tick()
 
-  await camera.start()
   els.trackingPill.textContent = 'Running'
 }
 
