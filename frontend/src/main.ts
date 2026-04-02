@@ -1,5 +1,6 @@
 import './style.css'
-import '@mediapipe/hands'
+// Import the actual browser bundle (attaches Hands/HAND_CONNECTIONS to window/globalThis).
+import '@mediapipe/hands/hands'
 
 type Vec2 = { x: number; y: number }
 
@@ -8,15 +9,13 @@ type HandsResults = {
   multiHandLandmarks?: HandLandmark[][]
 }
 
-const HandsCtor = (window as any).Hands as {
+type HandsCtorType = {
   new (cfg: { locateFile: (file: string) => string }): {
     setOptions(opts: Record<string, unknown>): void
     onResults(cb: (r: HandsResults) => void): void
     send(input: { image: HTMLVideoElement }): Promise<void>
   }
 }
-
-const HAND_CONNECTIONS = (window as any).HAND_CONNECTIONS as Array<[number, number]>
 
 const app = document.querySelector<HTMLDivElement>('#app')
 if (!app) throw new Error('Missing #app')
@@ -108,6 +107,7 @@ const drawCtx = els.draw.getContext('2d', { alpha: true })!
 
 let running = true
 let stream: MediaStream | null = null
+let HAND_CONNECTIONS: Array<[number, number]> = []
 
 let lastTip: Vec2 | null = null
 let currentColor = els.color.value
@@ -366,6 +366,16 @@ async function start() {
       'Camera permission denied/blocked. Allow camera access and reload.'
     return
   }
+
+  const HandsCtor = (window as any).Hands as HandsCtorType | undefined
+  const connections = (window as any).HAND_CONNECTIONS as Array<[number, number]> | undefined
+  if (!HandsCtor || !connections) {
+    els.trackingPill.textContent = 'Hands init error'
+    els.hint.textContent =
+      'MediaPipe Hands failed to load. Check your network/CSP (try allowing jsdelivr) and reload.'
+    return
+  }
+  HAND_CONNECTIONS = connections
 
   const hands = new HandsCtor({
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
