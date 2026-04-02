@@ -251,35 +251,70 @@ function drawAirStroke(tipPx: Vec2) {
 let pyProb: number | null = null
 let backendWs: WebSocket | null = null
 
-function connectBackend() {
-  try {
-    backendWs = new WebSocket('ws://127.0.0.1:8000/ws')
-  } catch {
-    backendWs = null
-    return
-  }
+function wsUrlFromHttp(url: URL) {
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
 
-  backendWs.onopen = () => {
-    els.backendPill.textContent = 'Python model: connected'
-    els.backendPill.classList.remove('pill-muted')
-  }
-  backendWs.onclose = () => {
-    els.backendPill.textContent = 'Python model: not connected'
-    els.backendPill.classList.add('pill-muted')
-    pyProb = null
-    window.setTimeout(connectBackend, 1500)
-  }
-  backendWs.onerror = () => {
-    // onclose handles UI + retry
-  }
-  backendWs.onmessage = (ev) => {
+function connectBackend() {
+  const candidates: string[] = []
+
+  // Deployed / reverse-proxy case (your config uses routePrefix "/_/backend")
+  candidates.push(wsUrlFromHttp(new URL('/_/backend/ws', window.location.href)))
+
+  // Local dev fallback (if backend runs separately on :8000)
+  candidates.push('ws://127.0.0.1:8000/ws')
+
+  let i = 0
+  const tryNext = () => {
+    if (i >= candidates.length) {
+      backendWs = null
+      window.setTimeout(connectBackend, 1500)
+      return
+    }
+
+    const url = candidates[i++]
     try {
-      const msg = JSON.parse(String(ev.data)) as { p_pointing?: number }
-      if (typeof msg.p_pointing === 'number') pyProb = msg.p_pointing
+      backendWs = new WebSocket(url)
     } catch {
-      // ignore
+      backendWs = null
+      tryNext()
+      return
+    }
+
+    backendWs.onopen = () => {
+      els.backendPill.textContent = `Python model: connected`
+      els.backendPill.classList.remove('pill-muted')
+    }
+    backendWs.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as { p_pointing?: number }
+        if (typeof msg.p_pointing === 'number') pyProb = msg.p_pointing
+      } catch {
+        // ignore
+      }
+    }
+    backendWs.onerror = () => {
+      // give onclose a chance, but if it doesn't happen quickly, attempt next
+      window.setTimeout(() => {
+        if (backendWs && backendWs.readyState !== WebSocket.OPEN) {
+          try {
+            backendWs.close()
+          } catch {
+            // ignore
+          }
+        }
+      }, 250)
+    }
+    backendWs.onclose = () => {
+      els.backendPill.textContent = 'Python model: not connected'
+      els.backendPill.classList.add('pill-muted')
+      pyProb = null
+      tryNext()
     }
   }
+
+  tryNext()
 }
 
 connectBackend()

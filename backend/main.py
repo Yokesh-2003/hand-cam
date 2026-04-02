@@ -239,6 +239,11 @@ def health() -> dict[str, Any]:
     return {"ok": True}
 
 
+@app.get("/_/backend/health")
+def health_prefixed() -> dict[str, Any]:
+    return {"ok": True}
+
+
 def _extract_landmarks(payload: dict[str, Any]) -> np.ndarray | None:
     arr = payload.get("landmarks")
     if not isinstance(arr, list) or len(arr) != 21:
@@ -265,6 +270,15 @@ def _predict_pointing_prob(lm: np.ndarray) -> float:
 
 @app.websocket("/ws")
 async def ws(websocket: WebSocket) -> None:
+    await _ws_loop(websocket)
+
+
+@app.websocket("/_/backend/ws")
+async def ws_prefixed(websocket: WebSocket) -> None:
+    await _ws_loop(websocket)
+
+
+async def _ws_loop(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
