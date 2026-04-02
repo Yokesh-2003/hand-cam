@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "prepare:mediapipe": "node scripts/copy-mediapipe-hands.mjs",
+    "postinstall": "npm run prepare:mediapipe",
+    "predev": "npm run prepare:mediapipe",
+    "prebuild": "npm run prepare:mediapipe",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"

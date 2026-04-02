@@ -1,6 +1,4 @@
 import './style.css'
-// Import the actual browser bundle (attaches Hands/HAND_CONNECTIONS to window/globalThis).
-import '@mediapipe/hands/hands'
 
 type Vec2 = { x: number; y: number }
 
@@ -15,6 +13,21 @@ type HandsCtorType = {
     onResults(cb: (r: HandsResults) => void): void
     send(input: { image: HTMLVideoElement }): Promise<void>
   }
+}
+
+function loadScriptOnce(src: string) {
+  const id = `script:${src}`
+  if (document.getElementById(id)) return Promise.resolve()
+  return new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.id = id
+    s.src = src
+    s.async = true
+    s.crossOrigin = 'anonymous'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error(`Failed to load script: ${src}`))
+    document.head.appendChild(s)
+  })
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -367,18 +380,29 @@ async function start() {
     return
   }
 
+  // Ensure MediaPipe Hands bundle is loaded (local, not CDN).
+  try {
+    await loadScriptOnce('/mediapipe/hands/hands.js')
+  } catch (err) {
+    console.error(err)
+    els.trackingPill.textContent = 'Hands load error'
+    els.hint.textContent =
+      'Could not load /mediapipe/hands/hands.js (deploy may be missing public assets).'
+    return
+  }
+
   const HandsCtor = (window as any).Hands as HandsCtorType | undefined
   const connections = (window as any).HAND_CONNECTIONS as Array<[number, number]> | undefined
   if (!HandsCtor || !connections) {
     els.trackingPill.textContent = 'Hands init error'
     els.hint.textContent =
-      'MediaPipe Hands failed to load. Check your network/CSP (try allowing jsdelivr) and reload.'
+      'MediaPipe Hands failed to initialize after loading hands.js. Check console and reload.'
     return
   }
   HAND_CONNECTIONS = connections
 
   const hands = new HandsCtor({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    locateFile: (file) => `/mediapipe/hands/${file}`,
   })
   hands.setOptions({
     maxNumHands: 1,
