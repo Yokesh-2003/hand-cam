@@ -29,6 +29,20 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 The page will automatically connect to `ws://127.0.0.1:8000/ws` and display `Python model p`.
 
+## Deploy on Vercel
+
+Vercel does **not** run long-lived `uvicorn` WebSocket servers. For Vercel deployment, this repo includes a **serverless Python API**:
+
+- `api/index.py` exposes:
+  - `POST /api/pointing`
+  - `GET /api/health`
+- `vercel.json` builds the Vite app from `frontend/`
+
+The frontend will use:
+
+- WebSocket when available (local dev), otherwise
+- `POST /api/pointing` (Vercel/serverless)
+
 ## Notes
 
 - The Python model is a tiny **2-layer neural network** trained at startup on **synthetic landmark data** (so it runs anywhere without a dataset).

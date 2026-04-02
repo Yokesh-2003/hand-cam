@@ -250,6 +250,8 @@ function drawAirStroke(tipPx: Vec2) {
 
 let pyProb: number | null = null
 let backendWs: WebSocket | null = null
+let httpPredictInFlight = false
+let lastHttpPredictMs = 0
 
 function wsUrlFromHttp(url: URL) {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -329,6 +331,30 @@ function maybeSendToBackend(lm: Array<{ x: number; y: number; z?: number }>) {
   )
 }
 
+async function maybePredictViaHttp(lm: Array<{ x: number; y: number; z?: number }>) {
+  // Vercel/serverless-friendly path (no websockets)
+  // Throttle to ~8 requests/sec max.
+  const now = performance.now()
+  if (httpPredictInFlight) return
+  if (now - lastHttpPredictMs < 120) return
+  lastHttpPredictMs = now
+  httpPredictInFlight = true
+  try {
+    const res = await fetch('/api/pointing', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ landmarks: lm.map((p) => [p.x, p.y, p.z ?? 0]) }),
+    })
+    if (!res.ok) return
+    const msg = (await res.json()) as { p_pointing?: number }
+    if (typeof msg.p_pointing === 'number') pyProb = msg.p_pointing
+  } catch {
+    // ignore
+  } finally {
+    httpPredictInFlight = false
+  }
+}
+
 async function start() {
   els.trackingPill.textContent = 'Requesting camera…'
 
@@ -367,7 +393,12 @@ async function start() {
     const localPointing = isPointingHeuristic(lms)
     els.localPointing.textContent = String(localPointing)
 
-    maybeSendToBackend(lms)
+    // Prefer WS (local dev). If not connected, try HTTP (Vercel/serverless).
+    if (backendWs && backendWs.readyState === WebSocket.OPEN) {
+      maybeSendToBackend(lms)
+    } else {
+      void maybePredictViaHttp(lms)
+    }
     els.pyProb.textContent = pyProb == null ? '—' : pyProb.toFixed(3)
 
     const pySaysPointing = pyProb != null && pyProb > 0.65
